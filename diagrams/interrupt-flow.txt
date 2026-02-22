@@ -1,0 +1,82 @@
+SMMU Event Queue Interrupt Storm -- Flow Diagram
+=================================================
+
+                    PCIe Device DMA Transaction
+                    (Ethernet, Wi-Fi, NVMe, etc.)
+                              |
+                              v
+                +--------------------------+
+                |     SMMU Instance 0       |
+                |    (0x0b010000)           |
+                |                          |
+                |   +------------------+   |
+                |   |  Stream Table     |   |
+                |   |  (2-level,        |   |
+                |   |   25-bit only)    |   |
+                |   +--------+---------+   |
+                |            |             |
+                |            v             |
+                |   Stream ID > 25 bits?   |
+                |      YES -> FAULT        |
+                |            |             |
+                |            v             |
+                |   +------------------+   |
+                |   |  Event Queue      |   |
+                |   |  Write evt 0x07   |   |     DMA data still
+                |   |  C_BAD_STREAMID   |-------> passes through
+                |   +--------+---------+   |     (bypass mode)
+                |            |             |
+                +-----------+|+-------------+
+                             |
+                             v
+                    Fire IRQ 13
+                    (GICv3 107, Edge)
+                             |
+                             v
+                +--------------------------+
+                |         CPU 0             |
+                |                          |
+                |  +--------------------+  |
+                |  | arm-smmu-v3-evtq   |  |
+                |  | IRQ handler        |  |
+                |  |  +-- Read event    |  |  ~130x / second
+                |  |  +-- Log to dmesg  |  |
+                |  |  +-- Advance CONS  |  |
+                |  |  +-- Return        |  |
+                |  +--------------------+  |
+                |                          |
+                |  +--------------------+  |
+                |  | Network softirqs   |  |
+                |  | (NET_RX, NET_TX)   |<--- starved by
+                |  |                    |     constant IRQs
+                |  +--------------------+  |
+                +--------------------------+
+                             |
+                             v
+                  SSH hangs, network drops,
+                  system appears frozen
+
+
+THE FIX
+=======
+
+  SMMU CR0 Register (0x0b010020)
+
+  Before: 0x1D = 0001 1101
+                      |
+                 bit 2 = 1 (EVTQEN enabled)
+                      |
+                      v
+            Event queue processes
+            events and fires IRQ
+            ~130 times per second
+
+  After:  0x19 = 0001 1001
+                      |
+                 bit 2 = 0 (EVTQEN disabled)
+                      |
+                      v
+            Event queue silent,
+            IRQ never fires,
+            CPU0 freed up,
+            network stack healthy

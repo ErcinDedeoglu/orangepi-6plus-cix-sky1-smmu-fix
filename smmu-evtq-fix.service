@@ -1,0 +1,15 @@
+[Unit]
+Description=Disable SMMU Event Queue (CIX Sky1 firmware workaround)
+Documentation=https://developer.arm.com/documentation/ihi0070/latest
+Documentation=https://github.com/ErcinDedeoglu/orangepi-6plus-cix-sky1-smmu-fix
+After=local-fs.target
+Before=network-pre.target
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/smmu-evtq-fix.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
